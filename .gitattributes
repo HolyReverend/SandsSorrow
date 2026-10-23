@@ -1,0 +1,6 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Unreal packages are binary: do not normalize line endings or text-merge them
+*.uasset binary
+*.umap binary
