@@ -12,3 +12,5 @@
 - Report test evidence honestly: NullRHI checks do not prove rendering or real keyboard/mouse input.
 - After completing work, list every added or modified file in the final chat response with a clickable Markdown link using its absolute path. Distinguish added files from modified files and briefly state what changed. If no files changed, say so.
 - При написании и изменении кода оставлять краткие комментарии на русском языке к функциям и отдельным смысловым блокам: пояснять их назначение, что происходит и, при необходимости, неочевидные причины или ограничения. Комментариев должно быть достаточно для общего понимания и навигации как программистом, так и другой моделью, без построчного пересказа, повторения очевидного и избыточного описания. Поддерживать комментарии в соответствии с кодом; имена программных идентификаторов оставлять на английском.
+
+- For the selected UE skills and diagnostic/package/profiling workflows, follow E:/Projects/GameDesign/SandsSorrow/Service/DevelopmentPipeline.md; project context is E:/Projects/GameDesign/SandsSorrow/Service/SkillProjectContext.md. Project rules take precedence over generic skill examples.
