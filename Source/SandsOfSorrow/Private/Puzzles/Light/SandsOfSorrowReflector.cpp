@@ -1,13 +1,17 @@
 #include "Puzzles/Light/SandsOfSorrowReflector.h"
 
+#include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
+#include "Puzzles/Light/SandsOfSorrowLightCollision.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "SandsOfSorrow.h"
+#include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 
 #define LOCTEXT_NAMESPACE "SandsReflector"
 
+// Собирает неподвижное основание, поворотную головку и видимый указатель нормали.
 ASandsOfSorrowReflector::ASandsOfSorrowReflector()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -26,11 +30,23 @@ ASandsOfSorrowReflector::ASandsOfSorrowReflector()
 	HeadMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HeadMesh"));
 	HeadMesh->SetupAttachment(HeadPivot);
 	HeadMesh->SetRelativeScale3D(FVector(0.12f, 1.0f, 1.0f));
-	// The moving head is selectable but cannot sweep into or trap a character.
+	// Головка доступна для выбора, но не зажимает персонажа при повороте.
 	HeadMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	HeadMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
 	HeadMesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+	HeadMesh->SetCollisionResponseToChannel(SandsOfSorrowLightCollision::Channel, ECR_Block);
 
+	// Передняя грань находится на 0.2 см впереди меша: корпус не выигрывает то же попадание.
+	WorkingSurface = CreateDefaultSubobject<UBoxComponent>(TEXT("WorkingSurface"));
+	WorkingSurface->SetupAttachment(HeadPivot);
+	WorkingSurface->SetRelativeLocation(FVector(6.1f, 0.0f, 0.0f));
+	WorkingSurface->SetBoxExtent(FVector(0.1f, 48.0f, 48.0f));
+	WorkingSurface->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	WorkingSurface->SetCollisionResponseToAllChannels(ECR_Ignore);
+	WorkingSurface->SetCollisionResponseToChannel(SandsOfSorrowLightCollision::Channel, ECR_Block);
+	WorkingSurface->SetGenerateOverlapEvents(false);
+
+	// Стрелка вращается вместе с головкой и не участвует в коллизии.
 	NormalMarker = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("NormalMarker"));
 	NormalMarker->SetupAttachment(HeadPivot);
 	NormalMarker->SetRelativeLocation(FVector(40.0f, 0.0f, 0.0f));
@@ -58,12 +74,14 @@ ASandsOfSorrowReflector::ASandsOfSorrowReflector()
 	ApplyHeadRotation();
 }
 
+// Применяет ориентацию также при редактировании экземпляра на уровне.
 void ASandsOfSorrowReflector::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
 	ApplyHeadRotation();
 }
 
+// Добавляет один из четырёх шагов по локальной Z к начальной ориентации головки.
 void ASandsOfSorrowReflector::ApplyHeadRotation()
 {
 	const FQuat StepRotation(FVector::UpVector, FMath::DegreesToRadians(90.0f * RotationIndex));
@@ -72,19 +90,32 @@ void ASandsOfSorrowReflector::ApplyHeadRotation()
 
 FVector ASandsOfSorrowReflector::GetFaceNormal() const
 {
-	return HeadPivot->GetForwardVector();
+	return WorkingSurface->GetForwardVector();
 }
 
+bool ASandsOfSorrowReflector::HasSupportedLightTransform() const
+{
+	return SandsOfSorrowLightCollision::HasSupportedTransform(WorkingSurface);
+}
+
+bool ASandsOfSorrowReflector::IsWorkingFaceHit(const FHitResult& Hit, const FVector& IncomingDirection) const
+{
+	return SandsOfSorrowLightCollision::IsFrontFaceHit(WorkingSurface, Hit, IncomingDirection);
+}
+
+// Разрешает действие включённому устройству от существующего внешнего инициатора.
 bool ASandsOfSorrowReflector::CanInteract_Implementation(AActor* Interactor) const
 {
 	return bInteractionEnabled && IsValid(Interactor) && Interactor != this;
 }
 
+// Возвращает настраиваемую подпись для общей подсказки взаимодействия.
 FText ASandsOfSorrowReflector::GetInteractionText_Implementation(AActor* Interactor) const
 {
 	return InteractionText;
 }
 
+// Выполняет один шаг на 90 градусов с циклом 0–3 после проверки доступности.
 bool ASandsOfSorrowReflector::Interact_Implementation(AActor* Interactor)
 {
 	if (!CanInteract_Implementation(Interactor))
@@ -93,6 +124,10 @@ bool ASandsOfSorrowReflector::Interact_Implementation(AActor* Interactor)
 	}
 	RotationIndex = (RotationIndex + 1) % 4;
 	ApplyHeadRotation();
+	if (RotateSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, RotateSound, GetActorLocation());
+	}
 	UE_LOG(LogSandsOfSorrow, Display, TEXT("%s: reflector orientation %d/4, normal %s"),
 		*GetNameSafe(this), RotationIndex, *GetFaceNormal().ToCompactString());
 	return true;

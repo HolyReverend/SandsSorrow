@@ -10,7 +10,7 @@ class USpringArmComponent;
 class USandsOfSorrowInteractionComponent;
 struct FInputActionValue;
 
-/** Gameplay character. Input assets and the temporary mesh are assigned in Blueprint. */
+/** Игровой персонаж; действия ввода и временный меш назначаются в Blueprint. */
 UCLASS(Blueprintable)
 class SANDSOFSORROW_API ASandsOfSorrowPlayerCharacter : public ACharacter
 {
@@ -28,6 +28,9 @@ public:
 	USandsOfSorrowInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 
 protected:
+	// Исключает из светового луча также компоненты, добавленные в игровом Blueprint.
+	virtual void PostInitializeComponents() override;
+
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
@@ -51,7 +54,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
 	TObjectPtr<USandsOfSorrowInteractionComponent> InteractionComponent;
 
-	/** Per-axis mouse multiplier. Mouse deltas are not multiplied by frame time. */
+	/** Чувствительность мыши по осям; её смещение не умножается на время кадра. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Camera", meta = (ClampMin = "0.0"))
 	FVector2D LookSensitivity = FVector2D(1.0, 1.0);
 
