@@ -2,6 +2,7 @@
 
 #include "Components/TextBlock.h"
 
+// Инициализирует пустую скрытую подсказку, включая повторное добавление виджета на экран.
 void USandsOfSorrowInteractionPromptWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -13,6 +14,7 @@ void USandsOfSorrowInteractionPromptWidget::NativeConstruct()
 	SetPromptState(false, false, FText::GetEmpty());
 }
 
+// Показывает текст только для доступной цели; маркер зависит от доступности управления.
 void USandsOfSorrowInteractionPromptWidget::SetPromptState(bool bGameplayAvailable, bool bHasTarget, const FText& Text)
 {
 	bPromptShown = bGameplayAvailable && bHasTarget && !Text.IsEmpty();
@@ -25,6 +27,7 @@ void USandsOfSorrowInteractionPromptWidget::SetPromptState(bool bGameplayAvailab
 			ActionText->SetText(NewText);
 		}
 	}
+	// Вся подсказка пропускает мышь: UI не должен отбирать фокус у игрового ввода.
 	SetVisibility(bGameplayAvailable ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	if (AimMarker)
 	{

@@ -10,7 +10,7 @@ class USandsOfSorrowInteractionComponent;
 class USandsOfSorrowInteractionPromptWidget;
 struct FInputKeyEventArgs;
 
-/** Owns the local context, one prompt and the lifetime of the current Pawn subscription. */
+/** Владеет локальным контекстом ввода, одной подсказкой и подпиской на текущий Pawn. */
 UCLASS(Blueprintable)
 class SANDSOFSORROW_API ASandsOfSorrowGameplayPlayerController : public APlayerController
 {
@@ -25,13 +25,14 @@ public:
 	virtual void PreProcessInput(float DeltaTime, bool bGamePaused) override;
 	virtual void PostProcessInput(float DeltaTime, bool bGamePaused) override;
 
-	/** Called only by the Character's Started handler; one physical press can be consumed once. */
+	/** Вызывается из Started персонажа; одно физическое нажатие разрешает только одно действие. */
 	bool ConsumeInteractionPress();
 
+	/** Проверяет, доступны ли локальное управление и взаимодействие в игровом viewport. */
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	bool IsGameplayInteractionAvailable() const;
 
-	/** Notify interaction before opening UI and after closing it; input mode remains the UI owner's job. */
+	/** Сообщает об открытии и закрытии UI; режим ввода переключает сам владелец меню. */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void SetInteractionUIActive(bool bActive);
 
@@ -66,6 +67,7 @@ private:
 	FDelegateHandle ApplicationActivationHandle;
 	bool bInteractionUIActive = false;
 	bool bApplicationActive = true;
+	// Одноразовое разрешение: только между IE_Pressed и концом обработки ввода в этом кадре.
 	bool bFreshInteractionPress = false;
 	bool bReportedPromptError = false;
 

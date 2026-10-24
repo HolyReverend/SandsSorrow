@@ -1,6 +1,7 @@
-"""Read-only validation of Stage 1 prototype assets or the active PIE world.
-Run: py ".../Scripts/Validate-Prototype.py" ".../report.json"
-Compiles the explicit Blueprint list in memory, never saves or moves assets.
+"""Проверяет ресурсы прототипа этапа 1 или активный мир PIE.
+Запуск: py ".../Scripts/Validate-Prototype.py" ".../report.json"
+Компилирует заданный список Blueprint в памяти, не сохраняет и не перемещает ассеты.
+Проверка свойств не подтверждает отрисовку и реальный ввод игрока.
 """
 import json
 import sys
@@ -19,12 +20,18 @@ REFLECTOR = '/Game/Blueprints/Logic/Light/BP_Reflector'
 CAMERA_MANAGER = '/Game/Blueprints/Characters/BP_PlayerCameraManager'
 PROMPT = '/Game/Blueprints/UI/WBP_InteractionPrompt'
 
+
+# Путь объекта для JSON; отсутствующие ссылки остаются null.
 def ref(obj):
     return obj.get_path_name() if obj else None
 
+
+# Преобразует вектор Unreal в обычные числовые поля отчёта.
 def vector(value):
     return {k: float(getattr(value, k)) for k in ('x', 'y', 'z')}
 
+
+# Собирает ошибки и снимок состояния: в PIE проверяет экземпляры, вне PIE — ресурсы и defaults.
 def inspect():
     editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
     game = editor.get_game_world()
@@ -32,6 +39,7 @@ def inspect():
               'project': unreal.Paths.get_project_file_path(), 'engine': unreal.SystemLibrary.get_engine_version(),
               'pie': bool(game), 'errors': []}
     if game:
+        # Фактическая цепочка владения и анимация должны принадлежать игровому Pawn.
         pc = unreal.GameplayStatics.get_player_controller(game, 0)
         pawn = pc.get_controlled_pawn() if pc else None
         gm = unreal.GameplayStatics.get_game_mode(game)
@@ -64,6 +72,7 @@ def inspect():
             if not (report['animation']['owner_matches'] and report['animation']['movement_matches']):
                 report['errors'].append('AnimBP cached owner/movement does not match gameplay Pawn')
     else:
+        # Статическая проверка требует открытую карту прототипа и не меняет её.
         world = editor.get_editor_world()
         report['world'] = ref(world)
         if ref(world) != MAP + '.L_LightPrototype':
@@ -73,6 +82,7 @@ def inspect():
         report['player_starts'] = [ref(a) for a in actors if isinstance(a, unreal.PlayerStart)]
         if len(report['player_starts']) != 1:
             report['errors'].append('Expected one PlayerStart')
+        # Компиляция в памяти выявляет ошибки и неверное наследование без пересохранения пакетов.
         expected_parents = [(CHARACTER, '/Script/SandsOfSorrow.SandsOfSorrowPlayerCharacter'),
                             (CONTROLLER, '/Script/SandsOfSorrow.SandsOfSorrowGameplayPlayerController'),
                             (GAME_MODE, '/Script/Engine.GameModeBase'), (ANIM, '/Script/Engine.AnimInstance'),
@@ -88,6 +98,7 @@ def inspect():
             report['blueprints'].append(row)
             if row['parent'] != parent or bp.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
                 report['errors'].append('Blueprint parent/compile: ' + asset_path)
+        # Проверяем связи карты, GameMode и классов персонажа, контроллера, камеры и UI.
         gm_class = unreal.load_asset(GAME_MODE).generated_class()
         char_class = unreal.load_asset(CHARACTER).generated_class()
         pc_class = unreal.load_asset(CONTROLLER).generated_class()
@@ -116,6 +127,7 @@ def inspect():
             'collision_test': boom.get_editor_property('do_collision_test'), 'fov': char.get_editor_property('follow_camera').get_editor_property('field_of_view')}
         report['movement'] = {n: char.get_editor_property('character_movement').get_editor_property(n)
                               for n in ('max_walk_speed', 'max_acceleration', 'jump_z_velocity', 'air_control')}
+        # Сверяем типы действий и привязки; фактические движение и осмотр требуют отдельного теста.
         actions = {n: unreal.load_asset('/Game/Input/Actions/IA_' + n) for n in ('Move', 'Look', 'Jump', 'Interact')}
         report['actions'] = {n: {'asset': ref(a), 'value_type': str(a.get_editor_property('value_type'))} for n, a in actions.items()}
         for n, action in actions.items():
@@ -143,6 +155,7 @@ def inspect():
         report['anim_class'] = ref(mesh.get_editor_property('anim_class'))
         if report['mesh'] != '/Game/Template/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple' or report['anim_class'] != ANIM + '.ABP_Unarmed_C':
             report['errors'].append('Temporary mesh/animation mismatch')
+    # Общие требования к компоненту действуют и для defaults, и для экземпляра PIE.
     pawn_defaults = pawn if game else char
     interaction = pawn_defaults.get_interaction_component()
     if not interaction:
@@ -159,6 +172,7 @@ def inspect():
         if report['interaction']['interact_action'] != '/Game/Input/Actions/IA_Interact.IA_Interact':
             report['errors'].append('Missing interaction action assignment')
     if game:
+        # Проверяем единственность UI, владельца и соответствие текста/видимости авторитетному фокусу.
         prompt = pc.get_interaction_prompt()
         prompt_class = unreal.load_asset(PROMPT).generated_class()
         widgets = unreal.WidgetLibrary.get_all_widgets_of_class(game, prompt_class, top_level_only=True)
@@ -188,6 +202,7 @@ def inspect():
                 report['errors'].append('Prompt does not match the authoritative interaction focus')
             if not available and interaction and (interaction.get_focused_actor() or str(interaction.get_focused_text())):
                 report['errors'].append('Focus must be empty when gameplay interaction is unavailable')
+    # Число устройств и их состояние фиксируются без вызова взаимодействия.
     check_world = game if game else world
     reflector_class = unreal.load_class(None, '/Script/SandsOfSorrow.SandsOfSorrowReflector')
     reflectors = unreal.GameplayStatics.get_all_actors_of_class(check_world, reflector_class)
@@ -200,6 +215,8 @@ def inspect():
     report['dirty_map_packages'] = [ref(p) for p in unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages()]
     return report
 
+
+# Даже исключение записывается в отчёт; итоговая ошибка делает неуспех явным для запускающего инструмента.
 output = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(unreal.Paths.project_saved_dir()) / 'Verification/Prototype.json'
 try:
     result = inspect()

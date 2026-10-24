@@ -4,5 +4,5 @@
 
 #include "CoreMinimal.h"
 
-/** Main log category used across the project */
+/** Общая категория журнала для диагностики игровых систем проекта. */
 DECLARE_LOG_CATEGORY_EXTERN(LogSandsOfSorrow, Log, All);

@@ -8,6 +8,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "SandsOfSorrow.h"
 
+// Включает автоматическую активацию и обновление фокуса после основного обновления мира.
 USandsOfSorrowInteractionComponent::USandsOfSorrowInteractionComponent()
 {
 	bAutoActivate = true;
@@ -16,6 +17,7 @@ USandsOfSorrowInteractionComponent::USandsOfSorrowInteractionComponent()
 	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
+// Проверяет активность, локальное владение Pawn и доступность управления.
 bool USandsOfSorrowInteractionComponent::GetInteractionContext(APawn*& Pawn, APlayerController*& Controller) const
 {
 	Pawn = Cast<APawn>(GetOwner());
@@ -25,6 +27,7 @@ bool USandsOfSorrowInteractionComponent::GetInteractionContext(APawn*& Pawn, APl
 		&& GetWorld() && !UGameplayStatics::IsGamePaused(this);
 }
 
+// Выбирает одну цель первым попаданием камеры, затем проверяет досягаемость персонажа.
 AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 {
 	OutText = FText::GetEmpty();
@@ -35,6 +38,7 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 		return nullptr;
 	}
 
+	// Берём первое блокирующее попадание: объекты за стеной не становятся кандидатами.
 	FVector ViewLocation;
 	FRotator ViewRotation;
 	Controller->GetPlayerViewPoint(ViewLocation, ViewRotation);
@@ -53,6 +57,7 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 		return nullptr;
 	}
 
+	// Видимость от тела запрещает взаимодействие из-за угла, даже если камера видит цель.
 	FVector BodyOrigin = Pawn->GetPawnViewLocation();
 	if (const ACharacter* Character = Cast<ACharacter>(Pawn))
 	{
@@ -67,6 +72,7 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 		return nullptr;
 	}
 
+	// Blueprint-запросы не должны менять мир, но после них всё равно проверяем жизнь объектов.
 	if (!ISandsOfSorrowInteractable::Execute_CanInteract(Target, Pawn) || !IsValid(Target) || !IsValid(Pawn))
 	{
 		return nullptr;
@@ -75,6 +81,7 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 	return IsValid(Target) && IsValid(Pawn) ? Target : nullptr;
 }
 
+// Обновляет цель и текст вместе; уведомляет подписчиков только при изменении.
 void USandsOfSorrowInteractionComponent::SetFocus(AActor* Target, const FText& Text)
 {
 	if (!IsValid(Target))
@@ -82,7 +89,7 @@ void USandsOfSorrowInteractionComponent::SetFocus(AActor* Target, const FText& T
 		Target = nullptr;
 	}
 	const FText NewText = Target ? Text : FText::GetEmpty();
-	// Compare the weak handle too: a destroyed target still needs a clearing notification.
+	// Сравниваем саму слабую ссылку: уничтоженная цель тоже требует уведомления об очистке.
 	if (FocusedActor == TWeakObjectPtr<AActor>(Target) && FocusedText.EqualTo(NewText))
 	{
 		return;
@@ -93,6 +100,7 @@ void USandsOfSorrowInteractionComponent::SetFocus(AActor* Target, const FText& T
 	OnFocusChanged.Broadcast(Target, NewText);
 }
 
+// При блокировке сразу очищает фокус, при возобновлении заново проверяет мир.
 void USandsOfSorrowInteractionComponent::SetInteractionInputEnabled(bool bEnabled)
 {
 	const bool bChanged = bInteractionInputEnabled != bEnabled;
@@ -107,12 +115,14 @@ void USandsOfSorrowInteractionComponent::SetInteractionInputEnabled(bool bEnable
 	}
 }
 
+// Отключение компонента немедленно убирает ранее выбранную цель.
 void USandsOfSorrowInteractionComponent::Deactivate()
 {
 	Super::Deactivate();
 	ClearFocus();
 }
 
+// Пересчитывает цель и подпись по текущему состоянию мира.
 void USandsOfSorrowInteractionComponent::RefreshFocus()
 {
 	FText Text;
@@ -120,13 +130,16 @@ void USandsOfSorrowInteractionComponent::RefreshFocus()
 	SetFocus(Target, Text);
 }
 
+// Сбрасывает цель и текст через общий механизм уведомления.
 void USandsOfSorrowInteractionComponent::ClearFocus()
 {
 	SetFocus(nullptr, FText::GetEmpty());
 }
 
+// Повторно проверяет показанную цель перед действием; новое попадание требует следующего нажатия.
 bool USandsOfSorrowInteractionComponent::RequestInteraction()
 {
+	// Уведомление фокуса может повторно вызвать запрос; вложенное действие отклоняем.
 	if (bRequestInProgress)
 	{
 		return false;
@@ -145,7 +158,7 @@ bool USandsOfSorrowInteractionComponent::RequestInteraction()
 		return false;
 	}
 
-	// Focus notifications can run Blueprint code; recheck geometry and availability after broadcasting.
+	// Подписчики фокуса могут выполнить Blueprint-код: после уведомления проверяем мир ещё раз.
 	FText RecheckedText;
 	if (FindTarget(RecheckedText) != Target || !IsValid(Target) || !IsValid(Pawn))
 	{
@@ -159,12 +172,14 @@ bool USandsOfSorrowInteractionComponent::RequestInteraction()
 	return bSuccess;
 }
 
+// Регулярно обновляет фокус при движении игрока, камеры и устройств.
 void USandsOfSorrowInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	RefreshFocus();
 }
 
+// Очищает фокус с уведомлением и освобождает подписчиков при завершении жизни компонента.
 void USandsOfSorrowInteractionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ClearFocus();

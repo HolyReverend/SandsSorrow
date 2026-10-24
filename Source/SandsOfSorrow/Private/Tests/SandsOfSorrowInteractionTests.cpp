@@ -13,6 +13,7 @@
 
 namespace SandsInteractionTests
 {
+// Изолированный игровой мир с реальными акторами и трассировками, без зависимости от карты.
 struct FTestScene
 {
 	UWorld* World = nullptr;
@@ -23,6 +24,7 @@ struct FTestScene
 	ASandsOfSorrowReflector* First = nullptr;
 	ASandsOfSorrowReflector* Second = nullptr;
 
+	// Создаёт локального владельца, отдельную камеру и два устройства для проверки смены цели.
 	FTestScene()
 	{
 		World = UWorld::CreateWorld(EWorldType::Game, false);
@@ -46,6 +48,7 @@ struct FTestScene
 		Second = World->SpawnActor<ASandsOfSorrowReflector>(FVector(170.0f, 150.0f, 0.0f), FRotator::ZeroRotator);
 	}
 
+	// Освобождает владение и контекст мира после каждого теста.
 	~FTestScene()
 	{
 		Controller->UnPossess();
@@ -53,6 +56,7 @@ struct FTestScene
 		World->DestroyWorld(false);
 	}
 
+	// Снимок контекста и первого попадания помогает разобрать отказ теста.
 	FString Describe() const
 	{
 		FVector View; FRotator Rotation;
@@ -65,11 +69,13 @@ struct FTestScene
 			*View.ToCompactString(), *Rotation.ToCompactString(), bHit, *GetNameSafe(Hit.GetActor()), *Hit.ImpactPoint.ToCompactString());
 	}
 
+	// Меняет направление камеры независимо от положения тестового Pawn.
 	void AimAt(const FVector& Point)
 	{
 		Camera->SetActorRotation((Point - Camera->GetActorLocation()).Rotation());
 	}
 
+	// Добавляет препятствие только для Visibility, не вмешиваясь в движение.
 	AActor* Block(const FVector& Center, const FVector& Extent)
 	{
 		AActor* Wall = World->SpawnActor<AActor>();
@@ -90,6 +96,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsInteractionRevalidationTest,
 	"SandsOfSorrow.Interaction.RequestRevalidation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Проверяет отказ при устаревшем фокусе: запрет, новая стена, смена или уничтожение цели.
 bool FSandsInteractionRevalidationTest::RunTest(const FString& Parameters)
 {
 	using namespace SandsInteractionTests;
@@ -135,6 +142,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsInteractionReachTest,
 	"SandsOfSorrow.Interaction.ReachAndBodyVisibility",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Проверяет расстояние от персонажа и запрет взаимодействия камерой из-за угла.
 bool FSandsInteractionReachTest::RunTest(const FString& Parameters)
 {
 	using namespace SandsInteractionTests;
@@ -153,7 +161,7 @@ bool FSandsInteractionReachTest::RunTest(const FString& Parameters)
 	Scene.AimAt(FVector(200.0f, 0.0f, 150.0f));
 	Scene.Interaction->RefreshFocus();
 	TestEqual(TEXT("Side camera sees unobstructed target"), Scene.Interaction->GetFocusedActor(), static_cast<AActor*>(Scene.First));
-	// Camera ray passes at y ~50; body ray passes at y=0. Only the body ray is blocked.
+	// Луч камеры проходит при y ≈ 50, луч тела — при y = 0; стена перекрывает только второй.
 	Scene.Block(FVector(100.0f, 0.0f, 156.0f), FVector(5.0f, 12.0f, 20.0f));
 	TestFalse(TEXT("Camera peeking around corner cannot interact through body obstruction"), Scene.Interaction->RequestInteraction());
 	TestEqual(TEXT("Body-obstructed reflector unchanged"), Scene.First->GetRotationIndex(), 0);
@@ -165,6 +173,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsInteractionFocusLifecycleTest,
 	"SandsOfSorrow.Interaction.FocusLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
+// Проверяет обновление текста, сброс фокуса при блокировке и восстановление после активации.
 bool FSandsInteractionFocusLifecycleTest::RunTest(const FString& Parameters)
 {
 	using namespace SandsInteractionTests;
@@ -176,6 +185,7 @@ bool FSandsInteractionFocusLifecycleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Text change preserves the same actor"), Scene.Interaction->GetFocusedActor(), static_cast<AActor*>(Scene.First));
 	TestTrue(TEXT("Text refreshes on unchanged actor"), Scene.Interaction->GetFocusedText().EqualTo(Scene.First->InteractionText));
 
+	// Блокировка ввода и деактивация компонента должны одинаково убирать устаревшую подсказку.
 	Scene.Interaction->SetInteractionInputEnabled(false);
 	TestNull(TEXT("Suspension immediately clears focus"), Scene.Interaction->GetFocusedActor());
 	TestTrue(TEXT("Suspension clears text"), Scene.Interaction->GetFocusedText().IsEmpty());

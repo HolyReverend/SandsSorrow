@@ -9,7 +9,7 @@ class APlayerController;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSandsInteractionFocusChanged, AActor*, Target, FText, InteractionText);
 
-/** One camera-selected target, with independent reach and body-to-hit visibility checks. */
+/** Одна цель по взгляду камеры с отдельной проверкой расстояния и видимости от тела. */
 UCLASS(ClassGroup = (Interaction), meta = (BlueprintSpawnableComponent))
 class SANDSOFSORROW_API USandsOfSorrowInteractionComponent : public UActorComponent
 {
@@ -19,19 +19,21 @@ public:
 	USandsOfSorrowInteractionComponent();
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Controller suspends selection during UI, pause, loss of focus or possession. */
+	/** Контроллер блокирует выбор при UI, паузе, потере фокуса или управления Pawn. */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void SetInteractionInputEnabled(bool bEnabled);
 
 	virtual void Deactivate() override;
 
+	/** Обновляет цель и текст и сообщает подписчикам об изменениях. */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void RefreshFocus();
 
-	/** Rechecks the world, but never activates a different target on the same press. */
+	/** Перепроверяет мир; подмена цели не активирует соседнее устройство тем же нажатием. */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	bool RequestInteraction();
 
+	/** Сбрасывает цель и текст, уведомляя UI через OnFocusChanged. */
 	UFUNCTION(BlueprintCallable, Category = "Interaction")
 	void ClearFocus();
 
@@ -44,6 +46,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Interaction")
 	FSandsInteractionFocusChanged OnFocusChanged;
 
+	// Досягаемость от позиции персонажа до точки попадания; не длина луча камеры.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Interaction", meta = (ClampMin = "1.0", Units = "cm"))
 	float InteractionDistance = 250.0f;
 
@@ -61,5 +64,6 @@ private:
 	TWeakObjectPtr<AActor> FocusedActor;
 	FText FocusedText;
 	bool bInteractionInputEnabled = true;
+	// Защищает от вложенного запроса из подписчиков изменения фокуса.
 	bool bRequestInProgress = false;
 };

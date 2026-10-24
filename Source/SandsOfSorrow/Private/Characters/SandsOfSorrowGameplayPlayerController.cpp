@@ -13,6 +13,7 @@
 #include "InputMappingContext.h"
 #include "SandsOfSorrow.h"
 
+// Подключает контекст локального игрока; повторная настройка не создаёт дубль.
 void ASandsOfSorrowGameplayPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
@@ -43,7 +44,7 @@ void ASandsOfSorrowGameplayPlayerController::SetupInputComponent()
 		return;
 	}
 
-	// A context installed by another owner must not be removed by this controller.
+	// Чужой контекст не присваиваем себе, чтобы позднее не удалить его при очистке.
 	if (Subsystem->HasMappingContext(PlayerMappingContext))
 	{
 		UE_LOG(LogSandsOfSorrow, Warning, TEXT("%s: %s is already mapped by another owner; leaving it unchanged."),
@@ -56,6 +57,7 @@ void ASandsOfSorrowGameplayPlayerController::SetupInputComponent()
 	MappingSubsystem = Subsystem;
 }
 
+// Освобождает подписки, подсказку и контекст, которыми владеет контроллер.
 void ASandsOfSorrowGameplayPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	DetachInteraction();
@@ -73,6 +75,7 @@ void ASandsOfSorrowGameplayPlayerController::EndPlay(const EEndPlayReason::Type 
 	Super::EndPlay(EndPlayReason);
 }
 
+// Удаляет только собственный контекст из той подсистемы, в которую он был добавлен.
 void ASandsOfSorrowGameplayPlayerController::RemoveOwnedMappingContext()
 {
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = MappingSubsystem.Get())
@@ -86,12 +89,14 @@ void ASandsOfSorrowGameplayPlayerController::RemoveOwnedMappingContext()
 	MappingSubsystem.Reset();
 }
 
+// Продолжает обновлять доступность взаимодействия и UI во время паузы.
 ASandsOfSorrowGameplayPlayerController::ASandsOfSorrowGameplayPlayerController()
 {
 	PrimaryActorTick.bTickEvenWhenPaused = true;
 	bShouldPerformFullTickWhenPaused = true;
 }
 
+// Подписывается на смену активности приложения и связывает подсказку с текущим Pawn.
 void ASandsOfSorrowGameplayPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
@@ -105,6 +110,7 @@ void ASandsOfSorrowGameplayPlayerController::BeginPlay()
 	SynchronizeInteraction();
 }
 
+// Создаёт единственный виджет локального игрока после начала игры.
 void ASandsOfSorrowGameplayPlayerController::EnsureInteractionPrompt()
 {
 	if (!IsLocalPlayerController() || !HasActorBegunPlay() || InteractionPrompt)
@@ -127,6 +133,7 @@ void ASandsOfSorrowGameplayPlayerController::EnsureInteractionPrompt()
 	}
 }
 
+// Разрешает взаимодействие только при доступном игровом вводе и фокусе viewport.
 bool ASandsOfSorrowGameplayPlayerController::IsGameplayInteractionAvailable() const
 {
 	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
@@ -144,6 +151,7 @@ bool ASandsOfSorrowGameplayPlayerController::IsGameplayInteractionAvailable() co
 			|| FSlateApplication::Get().HasFocusedDescendants(Widget.ToSharedRef()));
 }
 
+// Отписывается от прежнего Pawn и сразу сбрасывает его фокус, подсказку и разрешение нажатия.
 void ASandsOfSorrowGameplayPlayerController::DetachInteraction()
 {
 	bFreshInteractionPress = false;
@@ -159,6 +167,7 @@ void ASandsOfSorrowGameplayPlayerController::DetachInteraction()
 	}
 }
 
+// Согласует подписку на текущий Pawn, доступность компонента и состояние UI.
 void ASandsOfSorrowGameplayPlayerController::SynchronizeInteraction()
 {
 	if (!IsLocalController())
@@ -176,6 +185,7 @@ void ASandsOfSorrowGameplayPlayerController::SynchronizeInteraction()
 			Current->OnFocusChanged.AddUniqueDynamic(this, &ThisClass::HandleFocusChanged);
 		}
 	}
+	// Блокировка отменяет старое нажатие; её снятие само по себе новое не создаёт.
 	const bool bAvailable = IsGameplayInteractionAvailable();
 	if (!bAvailable)
 	{
@@ -188,6 +198,7 @@ void ASandsOfSorrowGameplayPlayerController::SynchronizeInteraction()
 	UpdatePrompt();
 }
 
+// Передаёт виджету готовый фокус компонента; повторного выбора цели в UI нет.
 void ASandsOfSorrowGameplayPlayerController::UpdatePrompt()
 {
 	if (InteractionPrompt)
@@ -198,11 +209,13 @@ void ASandsOfSorrowGameplayPlayerController::UpdatePrompt()
 	}
 }
 
+// Обновляет подсказку из актуального состояния компонента после его уведомления.
 void ASandsOfSorrowGameplayPlayerController::HandleFocusChanged(AActor* Target, FText InteractionText)
 {
 	UpdatePrompt();
 }
 
+// Разрывает связь со старым компонентом до передачи управления новому Pawn.
 void ASandsOfSorrowGameplayPlayerController::SetPawn(APawn* InPawn)
 {
 	if (GetPawn() != InPawn)
@@ -213,26 +226,30 @@ void ASandsOfSorrowGameplayPlayerController::SetPawn(APawn* InPawn)
 	SynchronizeInteraction();
 }
 
+// Отслеживает изменения доступности, даже если событий ввода в кадре нет.
 void ASandsOfSorrowGameplayPlayerController::PlayerTick(float DeltaTime)
 {
 	Super::PlayerTick(DeltaTime);
 	SynchronizeInteraction();
 }
 
+// Применяет ограничения до обработки действий Enhanced Input.
 void ASandsOfSorrowGameplayPlayerController::PreProcessInput(float DeltaTime, bool bGamePaused)
 {
 	SynchronizeInteraction();
 	Super::PreProcessInput(DeltaTime, bGamePaused);
 }
 
+// Завершает обработку нажатия и синхронизирует состояние после действий.
 void ASandsOfSorrowGameplayPlayerController::PostProcessInput(float DeltaTime, bool bGamePaused)
 {
 	Super::PostProcessInput(DeltaTime, bGamePaused);
-	// Never carry a physical press across frames, input-mode changes or an IMC rebuild.
+	// Разрешение не переносится в другой кадр, режим ввода или перестроенный IMC.
 	bFreshInteractionPress = false;
 	SynchronizeInteraction();
 }
 
+// Определяет клавишу по действующим привязкам действия текущего персонажа.
 bool ASandsOfSorrowGameplayPlayerController::IsInteractionKey(const FKey& Key) const
 {
 	const ASandsOfSorrowPlayerCharacter* GameplayCharacter = Cast<ASandsOfSorrowPlayerCharacter>(GetPawn());
@@ -242,13 +259,14 @@ bool ASandsOfSorrowGameplayPlayerController::IsInteractionKey(const FKey& Key) c
 		&& Subsystem->QueryKeysMappedToAction(GameplayCharacter->GetInteractAction()).Contains(Key);
 }
 
+// Даёт одноразовое разрешение на действие только по свежему физическому нажатию.
 bool ASandsOfSorrowGameplayPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
 	if (IsInteractionKey(Params.Key))
 	{
 		SynchronizeInteraction();
-		// IE_Repeat after focus returns cannot arm the action. A new non-repeat press can,
-		// even if its preceding release happened in another application.
+		// Автоповтор после возврата фокуса не разрешает действие. Новое нажатие допустимо,
+		// даже если предыдущее отпускание произошло в другом приложении.
 		if (Params.Event == IE_Pressed && IsGameplayInteractionAvailable())
 		{
 			bFreshInteractionPress = true;
@@ -257,6 +275,7 @@ bool ASandsOfSorrowGameplayPlayerController::InputKey(const FInputKeyEventArgs& 
 	return Super::InputKey(Params);
 }
 
+// Потребляет разрешение ровно один раз из обработчика Started персонажа.
 bool ASandsOfSorrowGameplayPlayerController::ConsumeInteractionPress()
 {
 	SynchronizeInteraction();
@@ -265,12 +284,14 @@ bool ASandsOfSorrowGameplayPlayerController::ConsumeInteractionPress()
 	return bAllowed;
 }
 
+// Сброс клавиш отменяет также ещё не использованное разрешение взаимодействия.
 void ASandsOfSorrowGameplayPlayerController::FlushPressedKeys()
 {
 	bFreshInteractionPress = false;
 	Super::FlushPressedKeys();
 }
 
+// Владелец меню сообщает о блокировке; режим ввода он переключает самостоятельно.
 void ASandsOfSorrowGameplayPlayerController::SetInteractionUIActive(bool bActive)
 {
 	if (bInteractionUIActive != bActive)
@@ -281,6 +302,7 @@ void ASandsOfSorrowGameplayPlayerController::SetInteractionUIActive(bool bActive
 	}
 }
 
+// При смене активности отменяет нажатие и немедленно пересчитывает доступность.
 void ASandsOfSorrowGameplayPlayerController::HandleApplicationActivation(bool bActive)
 {
 	bApplicationActive = bActive;
