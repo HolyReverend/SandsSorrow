@@ -1,6 +1,11 @@
 #include "SandsOfSorrowLightStateTestListener.h"
 
 #include "Components/BoxComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/PointLight.h"
+#include "Materials/Material.h"
+#include "Puzzles/Light/SandsOfSorrowPuzzleDoor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Misc/AutomationTest.h"
@@ -27,6 +32,15 @@ void USandsOfSorrowLightStateTestListener::HandleSolved()
 	bCoherent &= Puzzle && Receiver && Puzzle->IsSolved() && Receiver->IsIlluminated()
 		&& Puzzle->LastTraceResult.ReachedReceiver.Get() == Receiver;
 	bReentryRejected &= Puzzle && !Puzzle->RecalculateNow();
+}
+
+// Уничтожение владельца из внешнего события должно прекратить выдачу его уведомлений.
+void USandsOfSorrowLightStateTestListener::HandleDoorOpened()
+{
+	if (IsValid(Puzzle))
+	{
+		Puzzle->Destroy();
+	}
 }
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -151,6 +165,61 @@ bool FSandsLightStateLifecycleTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Solved remains one transition"), Scene.Listener->SolvedEvents, 1);
 	TestTrue(TEXT("Callbacks coherent through retarget"), Scene.Listener->bCoherent);
 	TestTrue(TEXT("Callback reentry rejected"), Scene.Listener->bReentryRejected);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsLightRewardDestructionTest,
+	"SandsOfSorrow.LightPuzzle.RewardCallbackDestruction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// OnOpened может выполниться внутри SetOpen: после уничтожения комнаты нет награды и событий.
+bool FSandsLightRewardDestructionTest::RunTest(const FString& Parameters)
+{
+	SandsLightStateTests::FStateScene Scene;
+	ASandsOfSorrowPuzzleDoor* Door = Scene.World->SpawnActor<ASandsOfSorrowPuzzleDoor>(FVector(0, 1000, 120), FRotator::ZeroRotator);
+	APointLight* Reward = Scene.World->SpawnActor<APointLight>();
+	Reward->GetLightComponent()->SetVisibility(false);
+	Scene.Puzzle->Door = Door;
+	Scene.Puzzle->RewardLights.Add(Reward);
+	Scene.Puzzle->DispatchBeginPlay();
+	Door->DispatchBeginPlay();
+	Door->OpenDuration = 0.0f;
+	Door->OnOpened.AddDynamic(Scene.Listener, &USandsOfSorrowLightStateTestListener::HandleDoorOpened);
+	TestTrue(TEXT("Pass accepted before callback"), Scene.Puzzle->RecalculateNow());
+	TestFalse(TEXT("Callback destroyed coordinator"), IsValid(Scene.Puzzle));
+	TestFalse(TEXT("EndPlay extinguished receiver"), Scene.Receiver->IsIlluminated());
+	TestFalse(TEXT("Destroyed coordinator does not apply remaining reward"), Reward->GetLightComponent()->IsVisible());
+	TestEqual(TEXT("No illumination event after destruction"), Scene.Listener->IlluminationEvents, 0);
+	TestEqual(TEXT("No solved event after destruction"), Scene.Listener->SolvedEvents, 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsLightBeamMaterialTest,
+	"SandsOfSorrow.LightPuzzle.BeamMaterialRefresh",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// Пул сегментов отражает новую настройку материала без создания новых компонентов.
+bool FSandsLightBeamMaterialTest::RunTest(const FString& Parameters)
+{
+	SandsLightStateTests::FStateScene Scene;
+	Scene.Puzzle->RecalculateNow();
+	TInlineComponentArray<UStaticMeshComponent*> Segments;
+	Scene.Puzzle->GetComponents(Segments);
+	if (!TestEqual(TEXT("Direct beam creates one segment"), Segments.Num(), 1))
+	{
+		return false;
+	}
+	UMaterial* Material = NewObject<UMaterial>(Scene.Puzzle);
+	Scene.Puzzle->BeamMaterial = Material;
+	Scene.Puzzle->RecalculateNow();
+	TestEqual(TEXT("Existing segment receives changed material"), Segments[0]->GetMaterial(0), static_cast<UMaterialInterface*>(Material));
+	Scene.Puzzle->BeamMaterial = nullptr;
+	Scene.Puzzle->RecalculateNow();
+	TestTrue(TEXT("Cleared setting removes previous override"), Segments[0]->GetMaterial(0) != Material);
+	TInlineComponentArray<UStaticMeshComponent*> UpdatedSegments;
+	Scene.Puzzle->GetComponents(UpdatedSegments);
+	TestEqual(TEXT("Material changes reuse component"), UpdatedSegments.Num(), 1);
+	TestTrue(TEXT("Same segment reused"), UpdatedSegments.Contains(Segments[0]));
 	return true;
 }
 

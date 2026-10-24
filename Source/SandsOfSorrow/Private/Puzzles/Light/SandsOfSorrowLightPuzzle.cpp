@@ -7,6 +7,8 @@
 #include "Components/PointLightComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInterface.h"
+#include "Sound/SoundBase.h"
 #include "Puzzles/Light/SandsOfSorrowPuzzleDoor.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Engine/World.h"
@@ -17,6 +19,8 @@
 
 namespace
 {
+// Единый предел для расчёта и числа отображаемых сегментов.
+constexpr int32 MaxSupportedReflections = 16;
 // Слабые записи не удерживают мир или Actor; регистрация/выгрузка не зависят от BeginPlay.
 TArray<TWeakObjectPtr<ASandsOfSorrowLightPuzzle>>& RegisteredPuzzles()
 {
@@ -30,15 +34,15 @@ void ASandsOfSorrowLightPuzzle::PostRegisterAllComponents()
 	Super::PostRegisterAllComponents();
 	if (GetWorld() && !IsTemplate())
 	{
-		auto& Puzzles = RegisteredPuzzles();
-		Puzzles.RemoveAll([](const auto& Entry) { return !Entry.IsValid(); });
+		TArray<TWeakObjectPtr<ASandsOfSorrowLightPuzzle>>& Puzzles = RegisteredPuzzles();
+		Puzzles.RemoveAll([](const TWeakObjectPtr<ASandsOfSorrowLightPuzzle>& Entry) { return !Entry.IsValid(); });
 		Puzzles.AddUnique(this);
 	}
 }
 
 void ASandsOfSorrowLightPuzzle::PostUnregisterAllComponents()
 {
-	RegisteredPuzzles().RemoveAll([this](const auto& Entry) { return !Entry.IsValid() || Entry.Get() == this; });
+	RegisteredPuzzles().RemoveAll([this](const TWeakObjectPtr<ASandsOfSorrowLightPuzzle>& Entry) { return !Entry.IsValid() || Entry.Get() == this; });
 	Super::PostUnregisterAllComponents();
 }
 
@@ -88,11 +92,16 @@ bool ASandsOfSorrowLightPuzzle::RecalculateNow()
 	LastTraceResult = NewTrace;
 	AppliedReceiver = NewReceiver;
 	UpdateBeamVisuals(LastTraceResult);
+	const TWeakObjectPtr<ASandsOfSorrowLightPuzzle> Self(this);
 	if (bJustSolved)
 	{
 		ApplySolvedReward();
 	}
-	const TWeakObjectPtr<ASandsOfSorrowLightPuzzle> Self(this);
+	// Мгновенно открывшаяся дверь могла уничтожить координатор через OnOpened.
+	if (!Self.IsValid() || IsActorBeingDestroyed())
+	{
+		return true;
+	}
 	if (bOldChanged && IsValid(OldReceiver))
 	{
 		OldReceiver->NotifyIlluminationChanged();
@@ -150,7 +159,7 @@ FLightBeamTraceResult ASandsOfSorrowLightPuzzle::TraceBeam() const
 		return Result;
 	}
 	if (!FMath::IsFinite(MaxTotalDistance) || MaxTotalDistance <= 0.0
-		|| MaxReflections < 0 || MaxReflections > 16
+		|| MaxReflections < 0 || MaxReflections > MaxSupportedReflections
 		|| !FMath::IsFinite(SurfaceOffset) || SurfaceOffset < 0.001 || SurfaceOffset > 0.1)
 	{
 		Fail(TEXT("Check distance, offset and reflection budget (0..16)."));
@@ -178,7 +187,7 @@ FLightBeamTraceResult ASandsOfSorrowLightPuzzle::TraceBeam() const
 	}
 	// Сравниваем явные назначения только зарегистрированных координаторов того же мира.
 	// Нет поиска всех Actor, копирования устройств или изменения их владельца в расчёте.
-	for (const auto& Entry : RegisteredPuzzles())
+	for (const TWeakObjectPtr<ASandsOfSorrowLightPuzzle>& Entry : RegisteredPuzzles())
 	{
 		const ASandsOfSorrowLightPuzzle* Other = Entry.Get();
 		if (!IsValid(Other) || Other == this || Other->IsActorBeingDestroyed() || Other->GetWorld() != GetWorld())
@@ -206,7 +215,7 @@ FLightBeamTraceResult ASandsOfSorrowLightPuzzle::TraceBeam() const
 	}
 
 	// Один классификатор используется также для короткой проверки после отражения.
-	const auto ClassifyHit = [&](const FHitResult& Hit, const FVector& Direction) -> ASandsOfSorrowReflector*
+	const auto ClassifyHit = [this, &Result, &Fail](const FHitResult& Hit, const FVector& Direction) -> ASandsOfSorrowReflector*
 	{
 		if (Hit.bStartPenetrating)
 		{
@@ -350,17 +359,15 @@ FLightBeamTraceResult ASandsOfSorrowLightPuzzle::TraceBeam() const
 // Только сохранённые отрезки расчёта становятся видимыми; лишние компоненты скрываются.
 void ASandsOfSorrowLightPuzzle::UpdateBeamVisuals(const FLightBeamTraceResult& Trace)
 {
-	if (!BeamMesh || !GetWorld())
-	{
-		return;
-	}
-	const int32 Count = FMath::Min(Trace.Segments.Num(), 17);
+	// При отсутствии ресурса скрываем прежние сегменты тем же проходом очистки.
+	const int32 Count = IsValid(BeamMesh) && GetWorld()
+		? FMath::Min(Trace.Segments.Num(), MaxSupportedReflections + 1) : 0;
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
 		const FVector Start = Trace.Segments[Index].Start;
 		const FVector End = Trace.Segments[Index].End;
 		const FVector Delta = End - Start;
-		if (Delta.ContainsNaN() || Delta.IsNearlyZero())
+		if (Start.ContainsNaN() || End.ContainsNaN() || Delta.ContainsNaN() || Delta.IsNearlyZero())
 		{
 			if (BeamSegments.IsValidIndex(Index) && BeamSegments[Index])
 			{
@@ -385,6 +392,11 @@ void ASandsOfSorrowLightPuzzle::UpdateBeamVisuals(const FLightBeamTraceResult& T
 			BeamSegments.Add(Segment);
 		}
 		UStaticMeshComponent* Segment = BeamSegments[Index];
+		// Настройки могут измениться после создания пула, включая сброс материала.
+		if (Segment->GetMaterial(0) != BeamMaterial.Get())
+		{
+			Segment->SetMaterial(0, BeamMaterial);
+		}
 		Segment->SetWorldLocation((Start + End) * 0.5);
 		Segment->SetWorldRotation(FRotationMatrix::MakeFromZ(Delta).Rotator());
 		Segment->SetWorldScale3D(FVector(0.025, 0.025, Delta.Length() / 100.0));
@@ -405,6 +417,11 @@ void ASandsOfSorrowLightPuzzle::ApplySolvedReward()
 	if (IsValid(Door) && Door->GetWorld() == GetWorld())
 	{
 		Door->SetOpen(true);
+		// SetOpen может синхронно вызвать чужой Blueprint через OnOpened.
+		if (!IsValid(this) || IsActorBeingDestroyed())
+		{
+			return;
+		}
 	}
 	for (APointLight* Light : RewardLights)
 	{

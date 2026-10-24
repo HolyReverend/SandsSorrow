@@ -7,6 +7,7 @@
 #include "Engine/StaticMesh.h"
 #include "SandsOfSorrow.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 #include "UObject/ConstructorHelpers.h"
 
 #define LOCTEXT_NAMESPACE "SandsReflector"
@@ -118,7 +119,9 @@ FText ASandsOfSorrowReflector::GetInteractionText_Implementation(AActor* Interac
 // Выполняет один шаг на 90 градусов с циклом 0–3 после проверки доступности.
 bool ASandsOfSorrowReflector::Interact_Implementation(AActor* Interactor)
 {
-	if (!CanInteract_Implementation(Interactor))
+	// Execute учитывает Blueprint-переопределение даже при прямом вызове Interact.
+	if (!ISandsOfSorrowInteractable::Execute_CanInteract(this, Interactor)
+		|| !IsValid(this) || IsActorBeingDestroyed() || !IsValid(Interactor))
 	{
 		return false;
 	}

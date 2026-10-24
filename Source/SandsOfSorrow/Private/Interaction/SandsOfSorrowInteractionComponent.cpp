@@ -33,7 +33,10 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 	OutText = FText::GetEmpty();
 	APawn* Pawn = nullptr;
 	APlayerController* Controller = nullptr;
-	if (!GetInteractionContext(Pawn, Controller))
+	// Метаданные редактора не ограничивают значения, присвоенные из C++.
+	if (!FMath::IsFinite(CameraTraceDistance) || CameraTraceDistance < 1.0f
+		|| !FMath::IsFinite(InteractionDistance) || InteractionDistance < 1.0f
+		|| !GetInteractionContext(Pawn, Controller))
 	{
 		return nullptr;
 	}
@@ -52,7 +55,7 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 
 	AActor* Target = CameraHit.GetActor();
 	if (!IsValid(Target) || !Target->Implements<USandsOfSorrowInteractable>()
-		|| FVector::DistSquared(Pawn->GetActorLocation(), CameraHit.ImpactPoint) > FMath::Square(InteractionDistance))
+		|| FVector::DistSquared(Pawn->GetActorLocation(), CameraHit.ImpactPoint) > FMath::Square(static_cast<double>(InteractionDistance)))
 	{
 		return nullptr;
 	}

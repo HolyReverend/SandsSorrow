@@ -35,4 +35,8 @@ public:
 
 	UFUNCTION()
 	void HandleSolved();
+
+	// Моделирует Blueprint, удаляющий комнату сразу после открытия двери.
+	UFUNCTION()
+	void HandleDoorOpened();
 };

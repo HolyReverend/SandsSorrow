@@ -1,6 +1,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 #include "Misc/AutomationTest.h"
+#include <limits>
 #include "Camera/CameraActor.h"
 #include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
@@ -206,6 +207,35 @@ bool FSandsInteractionFocusLifecycleTest::RunTest(const FString& Parameters)
 	Scene.Interaction->RefreshFocus();
 	TestNull(TEXT("Destroy clears actor"), Scene.Interaction->GetFocusedActor());
 	TestTrue(TEXT("Destroy clears action text"), Scene.Interaction->GetFocusedText().IsEmpty());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSandsInteractionInvalidDistancesTest,
+	"SandsOfSorrow.Interaction.InvalidDistances",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// Некорректная настройка очищает старый фокус и не превращает отрицательный радиус в положительный.
+bool FSandsInteractionInvalidDistancesTest::RunTest(const FString& Parameters)
+{
+	SandsInteractionTests::FTestScene Scene;
+	const float InvalidDistances[] = {-250.0f, 0.0f, 0.5f,
+		std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()};
+	for (const float InvalidDistance : InvalidDistances)
+	{
+		Scene.Interaction->InteractionDistance = 250.0f;
+		Scene.Interaction->CameraTraceDistance = 1000.0f;
+		Scene.Interaction->RefreshFocus();
+		TestNotNull(TEXT("Valid configuration restores focus"), Scene.Interaction->GetFocusedActor());
+		Scene.Interaction->InteractionDistance = InvalidDistance;
+		TestFalse(TEXT("Invalid reach rejects action"), Scene.Interaction->RequestInteraction());
+		TestNull(TEXT("Invalid reach clears focus"), Scene.Interaction->GetFocusedActor());
+		Scene.Interaction->InteractionDistance = 250.0f;
+		Scene.Interaction->RefreshFocus();
+		Scene.Interaction->CameraTraceDistance = InvalidDistance;
+		TestFalse(TEXT("Invalid trace distance rejects action"), Scene.Interaction->RequestInteraction());
+		TestNull(TEXT("Invalid trace distance clears focus"), Scene.Interaction->GetFocusedActor());
+	}
+	TestEqual(TEXT("Rejected actions never rotate device"), Scene.First->GetRotationIndex(), 0);
 	return true;
 }
 
