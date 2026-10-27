@@ -1,7 +1,7 @@
 # Sands of Sorrow
 
-UE 5.8.4, C++ Third Person project.
+UE 5.8.4 C++ Third Person project.
 
-Документация и правила разработки: [README](../../GameDesign/SandsSorrow/README.md). Абсолютный путь: E:/Projects/GameDesign/SandsSorrow.
+Documentation and development rules: [README](../../GameDesign/SandsSorrow/README.md). Absolute path: E:/Projects/GameDesign/SandsSorrow.
 
-Перед работой прочитать [Development.md](../../GameDesign/SandsSorrow/Service/Development.md), [Architecture.md](../../GameDesign/SandsSorrow/TechnicalConcept/Architecture.md) и [Decisions.md](../../GameDesign/SandsSorrow/Service/Decisions.md). Шаблонный код изолирован в Source/SandsOfSorrow/Template.
+Before starting work, read the common constraints and task routing in [AgentInstructions.md](../../GameDesign/SandsSorrow/Service/AgentInstructions.md). Follow matching routes instead of reading every linked document. Template code is isolated in Source/SandsOfSorrow/Template.
