@@ -14,7 +14,7 @@ MAP = '/Game/Maps/TestMaps/L_LightPrototype'
 CHARACTER = '/Game/Blueprints/Characters/BP_PlayerCharacter'
 CONTROLLER = '/Game/Blueprints/Characters/BP_PlayerController'
 GAME_MODE = '/Game/Blueprints/Core/BPGM_SandsOfSorrow'
-ANIM = '/Game/Template/Characters/Mannequins/Anims/Unarmed/ABP_Unarmed'
+ANIM = '/Game/Animations/ABP_PlayerLocomotion'
 IMC = '/Game/Input/IMC_Player'
 REFLECTOR = '/Game/Blueprints/Logic/Light/BP_Reflector'
 CAMERA_MANAGER = '/Game/Blueprints/Characters/BP_PlayerCameraManager'
@@ -153,7 +153,7 @@ def inspect():
         mesh = char.get_editor_property('mesh')
         report['mesh'] = ref(mesh.get_skeletal_mesh_asset())
         report['anim_class'] = ref(mesh.get_editor_property('anim_class'))
-        if report['mesh'] != '/Game/Template/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple' or report['anim_class'] != ANIM + '.ABP_Unarmed_C':
+        if report['mesh'] != '/Game/Template/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple' or report['anim_class'] != ANIM + '.ABP_PlayerLocomotion_C':
             report['errors'].append('Temporary mesh/animation mismatch')
     # Общие требования к компоненту действуют и для defaults, и для экземпляра PIE.
     pawn_defaults = pawn if game else char

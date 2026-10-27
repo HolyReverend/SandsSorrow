@@ -2,19 +2,21 @@
 
 #include "Camera/CameraComponent.h"
 #include "Characters/SandsOfSorrowGameplayPlayerController.h"
+#include "Characters/SandsOfSorrowCharacterMovementSettings.h"
+#include "Characters/SandsOfSorrowCameraSettings.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Puzzles/Light/SandsOfSorrowLightCollision.h"
 #include "EnhancedInputComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "Interaction/SandsOfSorrowInteractionComponent.h"
 #include "SandsOfSorrow.h"
+#include "UObject/UObjectGlobals.h"
 
-// Создаёт компоненты и исходные настройки; игровые значения уточняются в Blueprint.
+// Создаёт компоненты; Blueprint назначает игровой ассет настроек, ввод и представление.
 ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter()
 {
 	InteractionComponent = CreateDefaultSubobject<USandsOfSorrowInteractionComponent>(TEXT("InteractionComponent"));
@@ -25,34 +27,33 @@ ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter()
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
-	JumpMaxCount = 1;
-
-	// Персонаж поворачивается по движению, а не вслед за поворотом камеры.
-	UCharacterMovementComponent* Movement = GetCharacterMovement();
-	Movement->bOrientRotationToMovement = true;
-	Movement->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
-	Movement->JumpZVelocity = 500.0f;
-	Movement->AirControl = 0.35f;
-	Movement->MaxWalkSpeed = 500.0f;
-	Movement->MinAnalogWalkSpeed = 20.0f;
-	Movement->BrakingDecelerationWalking = 2000.0f;
-	Movement->BrakingDecelerationFalling = 1500.0f;
+	// Нативный CDO конфигурации задаёт тот же профиль, что и игровой DA; ассеты здесь не загружаются.
+	ApplyMovementSettings();
 
 	// Плечо следует за взглядом и сокращается у препятствий; камера наследует его положение.
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetRootComponent());
-	CameraBoom->TargetArmLength = 400.0f;
 	CameraBoom->bUsePawnControlRotation = true;
-	CameraBoom->bDoCollisionTest = true;
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+	ApplyCameraSettings();
+}
+
+void ASandsOfSorrowPlayerCharacter::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	ApplyMovementSettings();
+	ApplyCameraSettings();
 }
 
 void ASandsOfSorrowPlayerCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
+	// Сериализованные overrides и Construction Script уже применены: финальные параметры берутся из DA.
+	ApplyMovementSettings();
+	ApplyCameraSettings();
 	// Выполняется после сборки BP-компонентов, один раз вместо поиска каждый кадр.
 	TInlineComponentArray<UPrimitiveComponent*> Primitives;
 	GetComponents(Primitives);
@@ -60,6 +61,56 @@ void ASandsOfSorrowPlayerCharacter::PostInitializeComponents()
 	{
 		Primitive->SetCollisionResponseToChannel(SandsOfSorrowLightCollision::Channel, ECR_Ignore);
 	}
+}
+
+void ASandsOfSorrowPlayerCharacter::ApplyMovementSettings()
+{
+	const USandsOfSorrowCharacterMovementSettings* Defaults = GetDefault<USandsOfSorrowCharacterMovementSettings>();
+	const USandsOfSorrowCharacterMovementSettings* Settings = MovementSettings ? MovementSettings.Get() : Defaults;
+	FString Error;
+	if (!Settings->ApplyTo(*this, Error))
+	{
+		if (!bMovementSettingsErrorReported)
+		{
+			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: invalid movement settings %s: %s Using native defaults."),
+				*GetNameSafe(this), *GetPathNameSafe(Settings), *Error);
+			bMovementSettingsErrorReported = true;
+		}
+		FString DefaultError;
+		if (!Defaults->ApplyTo(*this, DefaultError))
+		{
+			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: native movement defaults failed: %s"), *GetNameSafe(this), *DefaultError);
+		}
+		return;
+	}
+	UE_LOG(LogSandsOfSorrow, Verbose, TEXT("%s: applied movement settings %s (speed=%g, walking braking=%g, friction factor=%g)."),
+		*GetNameSafe(this), *GetPathNameSafe(Settings), Settings->MaxWalkSpeed,
+		Settings->BrakingDecelerationWalking, Settings->BrakingFrictionFactor);
+}
+
+// Применяет DA после сериализованных overrides; привязки компонентов и управление взглядом остаются прежними.
+void ASandsOfSorrowPlayerCharacter::ApplyCameraSettings()
+{
+	const USandsOfSorrowCameraSettings* Defaults = GetDefault<USandsOfSorrowCameraSettings>();
+	const USandsOfSorrowCameraSettings* Settings = CameraSettings ? CameraSettings.Get() : Defaults;
+	FString Error;
+	if (!Settings->ApplyTo(*CameraBoom, *FollowCamera, Error))
+	{
+		if (!bCameraSettingsErrorReported)
+		{
+			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: invalid camera settings %s: %s Using native defaults."),
+				*GetNameSafe(this), *GetPathNameSafe(Settings), *Error);
+			bCameraSettingsErrorReported = true;
+		}
+		FString DefaultError;
+		if (!Defaults->ApplyTo(*CameraBoom, *FollowCamera, DefaultError))
+		{
+			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: native camera defaults failed: %s"), *GetNameSafe(this), *DefaultError);
+		}
+		return;
+	}
+	UE_LOG(LogSandsOfSorrow, Verbose, TEXT("%s: applied camera settings %s (arm=%g, FOV=%g, target Z=%g)."),
+		*GetNameSafe(this), *GetPathNameSafe(Settings), Settings->TargetArmLength, Settings->FieldOfView, Settings->TargetOffset.Z);
 }
 
 // Проверяет типы назначенных действий и связывает их с обработчиками персонажа.
