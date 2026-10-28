@@ -37,7 +37,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Interaction")
 	USandsOfSorrowInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 
+	// Единый запрет действий персонажа в воздухе; ввод и интерфейс читают фактический режим движения.
+	bool IsGameplayInteractionAllowed() const;
+
 protected:
+	// Проверяет место перед обработкой импульса и поглощает запрос без буфера или продления удержанием.
+	virtual void CheckJumpInput(float DeltaTime) override;
+
 	// Обновляет предпросмотр после Construction Script без ручной симуляции движения.
 	virtual void OnConstruction(const FTransform& Transform) override;
 
@@ -81,10 +87,14 @@ private:
 	// Применяет валидный ассет; при ошибке сохраняет безопасные нативные значения и сообщает причину один раз.
 	void ApplyMovementSettings();
 	bool bMovementSettingsErrorReported = false;
+	bool bJumpOverrideErrorReported = false;
 
 	// Применяет конфигурацию собственных компонентов; ошибка диагностируется один раз и включает безопасный fallback.
 	void ApplyCameraSettings();
 	bool bCameraSettingsErrorReported = false;
+
+	// Проверяет локальный объём над капсулой, а не будущий горизонтальный маршрут.
+	bool HasJumpClearance() const;
 
 	void Interact();
 	void Move(const FInputActionValue& Value);

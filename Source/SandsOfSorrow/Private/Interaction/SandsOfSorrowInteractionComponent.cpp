@@ -1,6 +1,7 @@
 #include "Interaction/SandsOfSorrowInteractionComponent.h"
 
 #include "Components/CapsuleComponent.h"
+#include "Characters/SandsOfSorrowPlayerCharacter.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/PlayerController.h"
@@ -22,7 +23,8 @@ bool USandsOfSorrowInteractionComponent::GetInteractionContext(APawn*& Pawn, APl
 {
 	Pawn = Cast<APawn>(GetOwner());
 	Controller = IsValid(Pawn) ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
-	return bInteractionInputEnabled && IsActive() && IsValid(Pawn) && IsValid(Controller) && Pawn->IsLocallyControlled()
+	const ASandsOfSorrowPlayerCharacter* Character = Cast<ASandsOfSorrowPlayerCharacter>(Pawn);
+	return (!Character || Character->IsGameplayInteractionAllowed()) && bInteractionInputEnabled && IsActive() && IsValid(Pawn) && IsValid(Controller) && Pawn->IsLocallyControlled()
 		&& Controller->GetPawn() == Pawn && !Controller->IsMoveInputIgnored()
 		&& GetWorld() && !UGameplayStatics::IsGamePaused(this);
 }
@@ -76,12 +78,13 @@ AActor* USandsOfSorrowInteractionComponent::FindTarget(FText& OutText) const
 	}
 
 	// Blueprint-запросы не должны менять мир, но после них всё равно проверяем жизнь объектов.
-	if (!ISandsOfSorrowInteractable::Execute_CanInteract(Target, Pawn) || !IsValid(Target) || !IsValid(Pawn))
+	if (!ISandsOfSorrowInteractable::Execute_CanInteract(Target, Pawn) || !IsValid(this)
+		|| !IsValid(Target) || !GetInteractionContext(Pawn, Controller))
 	{
 		return nullptr;
 	}
 	OutText = ISandsOfSorrowInteractable::Execute_GetInteractionText(Target, Pawn);
-	return IsValid(Target) && IsValid(Pawn) ? Target : nullptr;
+	return IsValid(this) && IsValid(Target) && GetInteractionContext(Pawn, Controller) ? Target : nullptr;
 }
 
 // Обновляет цель и текст вместе; уведомляет подписчиков только при изменении.
@@ -155,7 +158,7 @@ bool USandsOfSorrowInteractionComponent::RequestInteraction()
 	APawn* Pawn = nullptr;
 	APlayerController* Controller = nullptr;
 	if (!IsValid(Target) || !PreviousTarget.IsValid() || PreviousTarget.Get() != Target
-		|| !GetInteractionContext(Pawn, Controller) || FocusedActor.Get() != Target)
+		|| !IsValid(this) || !GetInteractionContext(Pawn, Controller) || FocusedActor.Get() != Target)
 	{
 		UE_LOG(LogSandsOfSorrow, Verbose, TEXT("Interaction rejected: unavailable or changed target."));
 		return false;
@@ -163,7 +166,8 @@ bool USandsOfSorrowInteractionComponent::RequestInteraction()
 
 	// Подписчики фокуса могут выполнить Blueprint-код: после уведомления проверяем мир ещё раз.
 	FText RecheckedText;
-	if (FindTarget(RecheckedText) != Target || !IsValid(Target) || !IsValid(Pawn))
+	if (FindTarget(RecheckedText) != Target || !IsValid(this) || !IsValid(Target)
+		|| !GetInteractionContext(Pawn, Controller))
 	{
 		ClearFocus();
 		return false;
@@ -171,7 +175,10 @@ bool USandsOfSorrowInteractionComponent::RequestInteraction()
 	const bool bSuccess = ISandsOfSorrowInteractable::Execute_Interact(Target, Pawn);
 	UE_LOG(LogSandsOfSorrow, Display, TEXT("Interaction %s: %s"), bSuccess ? TEXT("succeeded") : TEXT("rejected"),
 		*GetNameSafe(IsValid(Target) ? Target : nullptr));
-	RefreshFocus();
+	if (IsValid(this))
+	{
+		RefreshFocus();
+	}
 	return bSuccess;
 }
 

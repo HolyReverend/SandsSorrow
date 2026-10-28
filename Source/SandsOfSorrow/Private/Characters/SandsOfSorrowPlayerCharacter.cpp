@@ -9,12 +9,15 @@
 #include "Puzzles/Light/SandsOfSorrowLightCollision.h"
 #include "EnhancedInputComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/World.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputAction.h"
 #include "InputActionValue.h"
 #include "Interaction/SandsOfSorrowInteractionComponent.h"
 #include "SandsOfSorrow.h"
 #include "UObject/UObjectGlobals.h"
+#include "UObject/Class.h"
 
 // Создаёт компоненты; Blueprint назначает игровой ассет настроек, ввод и представление.
 ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter()
@@ -27,7 +30,7 @@ ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter()
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
-	// Нативный CDO конфигурации задаёт тот же профиль, что и игровой DA; ассеты здесь не загружаются.
+	// Нативный CDO задаёт резервный профиль; игровой DA может отличаться, в том числе ориентацией.
 	ApplyMovementSettings();
 
 	// Плечо следует за взглядом и сокращается у препятствий; камера наследует его положение.
@@ -189,4 +192,93 @@ void ASandsOfSorrowPlayerCharacter::Look(const FInputActionValue& Value)
 	const FVector2D Input = Value.Get<FVector2D>();
 	AddControllerYawInput(Input.X * LookSensitivity.X);
 	AddControllerPitchInput(Input.Y * LookSensitivity.Y);
+}
+
+// Проверка выполняется при обработке запроса, после возможного изменения препятствий со времени Started.
+void ASandsOfSorrowPlayerCharacter::CheckJumpInput(float DeltaTime)
+{
+	if (!bPressedJump)
+	{
+		Super::CheckJumpInput(DeltaTime);
+		return;
+	}
+	// Правила прыжка принадлежат C++; BP-переопределение могло бы изменить мир между проверкой и импульсом.
+	const UFunction* JumpEligibility = FindFunction(TEXT("CanJumpInternal"));
+	if (!JumpEligibility || !JumpEligibility->Script.IsEmpty())
+	{
+		if (!bJumpOverrideErrorReported)
+		{
+			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: Blueprint CanJump overrides are unsupported; keep jump eligibility in C++."), *GetNameSafe(this));
+			bJumpOverrideErrorReported = true;
+		}
+		StopJumping();
+		return;
+	}
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement || !Movement->IsMovingOnGround() || !HasJumpClearance())
+	{
+		StopJumping();
+		return;
+	}
+	Super::CheckJumpInput(DeltaTime);
+	// Любой результат потребляет одну попытку. Удержание Space не создаёт новый Started.
+	if (IsValid(this))
+	{
+		StopJumping();
+	}
+}
+
+// Высота рассчитывается из действующей физики; геометрия использует полный масштаб и ответы капсулы.
+bool ASandsOfSorrowPlayerCharacter::HasJumpClearance() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const UCapsuleComponent* Capsule = GetCapsuleComponent();
+	const UWorld* World = GetWorld();
+	if (!Movement || !Capsule || !World || !Capsule->IsQueryCollisionEnabled())
+	{
+		return false;
+	}
+	const float GravityZ = Movement->GetGravityZ();
+	const float JumpSpeed = Movement->JumpZVelocity;
+	if (!FMath::IsFinite(GravityZ) || GravityZ >= -UE_KINDA_SMALL_NUMBER
+		|| !FMath::IsFinite(JumpSpeed) || JumpSpeed <= 0.0f || JumpSpeed > 100000.0f)
+	{
+		return false;
+	}
+	// DoJump сохраняет большую входящую вертикальную скорость; объём должен покрывать и этот случай.
+	const double BaseVelocityZ = Movement->GetImpartedMovementBaseVelocity().Z;
+	const double TakeoffSpeed = FMath::Max(static_cast<double>(JumpSpeed), Movement->Velocity.Z)
+		+ FMath::Max(0.0, BaseVelocityZ);
+	const double Height = FMath::Square(TakeoffSpeed) / (-2.0 * GravityZ);
+	constexpr float ClearanceMarginCm = 2.0f;
+	// Ограничение защищает запрос физики от неподдерживаемой гравитации/чрезмерного объёма.
+	constexpr float MaximumClearanceHeightCm = 100000.0f;
+	const float Radius = Capsule->GetScaledCapsuleRadius();
+	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	if (!FMath::IsFinite(BaseVelocityZ) || !FMath::IsFinite(TakeoffSpeed) || !FMath::IsFinite(Height) || Height < 0.0f || Height > MaximumClearanceHeightCm
+		|| !FMath::IsFinite(Radius) || !FMath::IsFinite(HalfHeight) || Radius <= 0.0f || HalfHeight < Radius)
+	{
+		return false;
+	}
+	const FVector Start = Capsule->GetComponentLocation();
+	const FVector End = Start + FVector::UpVector * (Height + ClearanceMarginCm);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(SandsJumpClearance), false, this);
+	Params.bFindInitialOverlaps = true;
+	const FCollisionResponseParams Responses(Capsule->GetCollisionResponseToChannels());
+	const FCollisionShape Shape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+	if (World->OverlapBlockingTestByChannel(Start, Capsule->GetComponentQuat(),
+		Capsule->GetCollisionObjectType(), Shape, Params, Responses))
+	{
+		return false;
+	}
+	FHitResult Hit;
+	return !World->SweepSingleByChannel(Hit, Start, End, Capsule->GetComponentQuat(),
+		Capsule->GetCollisionObjectType(), Shape, Params, Responses);
+}
+
+// Сход с края и весь прыжок используют один фактический режим без отдельного флага полёта.
+bool ASandsOfSorrowPlayerCharacter::IsGameplayInteractionAllowed() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	return Movement && !Movement->IsFalling();
 }
