@@ -1,5 +1,7 @@
 #include "Characters/SandsOfSorrowPlayerCharacter.h"
 
+#include "Characters/SandsOfSorrowCharacterMovementComponent.h"
+
 #include "Camera/CameraComponent.h"
 #include "Characters/SandsOfSorrowGameplayPlayerController.h"
 #include "Characters/SandsOfSorrowCharacterMovementSettings.h"
@@ -20,7 +22,8 @@
 #include "UObject/Class.h"
 
 // Создаёт компоненты; Blueprint назначает игровой ассет настроек, ввод и представление.
-ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter()
+ASandsOfSorrowPlayerCharacter::ASandsOfSorrowPlayerCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<USandsOfSorrowCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	InteractionComponent = CreateDefaultSubobject<USandsOfSorrowInteractionComponent>(TEXT("InteractionComponent"));
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 96.0f);

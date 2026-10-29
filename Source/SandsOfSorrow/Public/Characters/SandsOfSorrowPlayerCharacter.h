@@ -19,7 +19,7 @@ class SANDSOFSORROW_API ASandsOfSorrowPlayerCharacter : public ACharacter
 	GENERATED_BODY()
 
 public:
-	ASandsOfSorrowPlayerCharacter();
+	ASandsOfSorrowPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	const UInputAction* GetInteractAction() const { return InteractAction; }
 
