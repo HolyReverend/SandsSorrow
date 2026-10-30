@@ -27,6 +27,9 @@ public:
 
 	/** Вызывается из Started персонажа; одно физическое нажатие разрешает только одно действие. */
 	bool ConsumeInteractionPress();
+	// Отдельное разрешение crouch не расходует свежий ввод взаимодействия.
+	bool ConsumeCrouchPress();
+	bool IsGameplayControlAvailable() const;
 
 	/** Проверяет, доступны ли локальное управление и взаимодействие в игровом viewport. */
 	UFUNCTION(BlueprintPure, Category = "Interaction")
@@ -57,6 +60,8 @@ private:
 	void DetachInteraction();
 	void UpdatePrompt();
 	bool IsInteractionKey(const FKey& Key) const;
+	bool IsCrouchKey(const FKey& Key) const;
+	void CancelCrouchHold();
 	void HandleApplicationActivation(bool bActive);
 
 	UFUNCTION()
@@ -69,6 +74,7 @@ private:
 	bool bApplicationActive = true;
 	// Одноразовое разрешение: только между IE_Pressed и концом обработки ввода в этом кадре.
 	bool bFreshInteractionPress = false;
+	bool bFreshCrouchPress = false;
 	bool bReportedPromptError = false;
 
 	UPROPERTY(Transient)

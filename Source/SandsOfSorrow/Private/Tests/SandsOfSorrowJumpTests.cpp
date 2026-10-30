@@ -199,7 +199,7 @@ bool FSandsJumpFlightInteractionTest::RunTest(const FString& Parameters)
     APlayerController* Controller = Scene.World->SpawnActor<APlayerController>();
     Controller->Player = NewObject<ULocalPlayer>(GEngine);
     // Нативный тестовый Pawn получает корректные временные действия перед обычным SetupPlayerInputComponent.
-    for (const FName Name : {FName(TEXT("MoveAction")), FName(TEXT("LookAction")), FName(TEXT("JumpAction")), FName(TEXT("InteractAction"))})
+    for (const FName Name : {FName(TEXT("MoveAction")), FName(TEXT("LookAction")), FName(TEXT("JumpAction")), FName(TEXT("InteractAction")), FName(TEXT("CrouchAction"))})
     {
         UInputAction* Action = NewObject<UInputAction>(Scene.Character);
         Action->ValueType = Name == TEXT("MoveAction") || Name == TEXT("LookAction")

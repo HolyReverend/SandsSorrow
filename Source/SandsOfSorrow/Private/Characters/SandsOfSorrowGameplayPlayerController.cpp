@@ -60,6 +60,7 @@ void ASandsOfSorrowGameplayPlayerController::SetupInputComponent()
 // Освобождает подписки, подсказку и контекст, которыми владеет контроллер.
 void ASandsOfSorrowGameplayPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	CancelCrouchHold();
 	DetachInteraction();
 	if (FSlateApplication::IsInitialized() && ApplicationActivationHandle.IsValid())
 	{
@@ -78,6 +79,7 @@ void ASandsOfSorrowGameplayPlayerController::EndPlay(const EEndPlayReason::Type 
 // Удаляет только собственный контекст из той подсистемы, в которую он был добавлен.
 void ASandsOfSorrowGameplayPlayerController::RemoveOwnedMappingContext()
 {
+	CancelCrouchHold();
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = MappingSubsystem.Get())
 	{
 		if (OwnedMappingContext)
@@ -134,11 +136,11 @@ void ASandsOfSorrowGameplayPlayerController::EnsureInteractionPrompt()
 }
 
 // Разрешает взаимодействие только при доступном игровом вводе и фокусе viewport.
-bool ASandsOfSorrowGameplayPlayerController::IsGameplayInteractionAvailable() const
+bool ASandsOfSorrowGameplayPlayerController::IsGameplayControlAvailable() const
 {
 	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
 	UGameViewportClient* Viewport = LocalPlayer ? LocalPlayer->ViewportClient : nullptr;
-	if (!IsLocalController() || !IsValid(GetPawn()) || !InteractionPrompt || !InteractionPrompt->IsInViewport()
+	if (!IsLocalController() || !IsValid(GetPawn())
 		|| bInteractionUIActive || !bApplicationActive || IsMoveInputIgnored()
 		|| !GetWorld() || UGameplayStatics::IsGamePaused(this) || !Viewport || Viewport->IgnoreInput()
 		|| !FSlateApplication::IsInitialized())
@@ -149,6 +151,12 @@ bool ASandsOfSorrowGameplayPlayerController::IsGameplayInteractionAvailable() co
 	return Widget.IsValid() && FSlateApplication::Get().IsActive()
 		&& (Widget->HasAnyUserFocus().IsSet()
 			|| FSlateApplication::Get().HasFocusedDescendants(Widget.ToSharedRef()));
+}
+
+// Подсказка ограничивает только взаимодействие, но не обычное управление персонажем.
+bool ASandsOfSorrowGameplayPlayerController::IsGameplayInteractionAvailable() const
+{
+	return IsGameplayControlAvailable() && InteractionPrompt && InteractionPrompt->IsInViewport();
 }
 
 // Отписывается от прежнего Pawn и сразу сбрасывает его фокус, подсказку и разрешение нажатия.
@@ -173,6 +181,10 @@ void ASandsOfSorrowGameplayPlayerController::SynchronizeInteraction()
 	if (!IsLocalController())
 	{
 		return;
+	}
+	if (!IsGameplayControlAvailable())
+	{
+		CancelCrouchHold();
 	}
 	const ASandsOfSorrowPlayerCharacter* GameplayCharacter = Cast<ASandsOfSorrowPlayerCharacter>(GetPawn());
 	USandsOfSorrowInteractionComponent* Current = IsValid(GameplayCharacter) ? GameplayCharacter->GetInteractionComponent() : nullptr;
@@ -220,6 +232,7 @@ void ASandsOfSorrowGameplayPlayerController::SetPawn(APawn* InPawn)
 {
 	if (GetPawn() != InPawn)
 	{
+		CancelCrouchHold();
 		DetachInteraction();
 	}
 	Super::SetPawn(InPawn);
@@ -246,6 +259,7 @@ void ASandsOfSorrowGameplayPlayerController::PostProcessInput(float DeltaTime, b
 	Super::PostProcessInput(DeltaTime, bGamePaused);
 	// Разрешение не переносится в другой кадр, режим ввода или перестроенный IMC.
 	bFreshInteractionPress = false;
+	bFreshCrouchPress = false;
 	SynchronizeInteraction();
 }
 
@@ -262,6 +276,10 @@ bool ASandsOfSorrowGameplayPlayerController::IsInteractionKey(const FKey& Key) c
 // Даёт одноразовое разрешение на действие только по свежему физическому нажатию.
 bool ASandsOfSorrowGameplayPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
+	if (IsCrouchKey(Params.Key) && Params.Event == IE_Pressed && IsGameplayControlAvailable())
+	{
+		bFreshCrouchPress = true;
+	}
 	if (IsInteractionKey(Params.Key))
 	{
 		SynchronizeInteraction();
@@ -288,6 +306,7 @@ bool ASandsOfSorrowGameplayPlayerController::ConsumeInteractionPress()
 void ASandsOfSorrowGameplayPlayerController::FlushPressedKeys()
 {
 	bFreshInteractionPress = false;
+	CancelCrouchHold();
 	Super::FlushPressedKeys();
 }
 
@@ -308,4 +327,32 @@ void ASandsOfSorrowGameplayPlayerController::HandleApplicationActivation(bool bA
 	bApplicationActive = bActive;
 	bFreshInteractionPress = false;
 	SynchronizeInteraction();
+}
+
+// Привязка читается из действующего IMC, а не дублируется жёсткой клавишей в C++.
+bool ASandsOfSorrowGameplayPlayerController::IsCrouchKey(const FKey& Key) const
+{
+	const ASandsOfSorrowPlayerCharacter* GameplayCharacter = Cast<ASandsOfSorrowPlayerCharacter>(GetPawn());
+	const ULocalPlayer* LocalPlayer = GetLocalPlayer();
+	const UEnhancedInputLocalPlayerSubsystem* Subsystem = LocalPlayer ? LocalPlayer->GetSubsystem<UEnhancedInputLocalPlayerSubsystem>() : nullptr;
+	return GameplayCharacter && GameplayCharacter->GetCrouchAction() && Subsystem
+		&& Subsystem->QueryKeysMappedToAction(GameplayCharacter->GetCrouchAction()).Contains(Key);
+}
+
+// Возврат фокуса с удержанной клавишей не создаёт новое разрешение Started.
+bool ASandsOfSorrowGameplayPlayerController::ConsumeCrouchPress()
+{
+	const bool bAllowed = bFreshCrouchPress && IsGameplayControlAvailable();
+	bFreshCrouchPress = false;
+	return bAllowed;
+}
+
+// Сброс намерения оставляет безопасное вставание штатной проверке коллизии.
+void ASandsOfSorrowGameplayPlayerController::CancelCrouchHold()
+{
+	bFreshCrouchPress = false;
+	if (ASandsOfSorrowPlayerCharacter* GameplayCharacter = Cast<ASandsOfSorrowPlayerCharacter>(GetPawn()))
+	{
+		GameplayCharacter->SetCrouchHeld(false);
+	}
 }

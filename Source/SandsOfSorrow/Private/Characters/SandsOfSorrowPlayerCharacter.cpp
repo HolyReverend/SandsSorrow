@@ -113,8 +113,10 @@ void ASandsOfSorrowPlayerCharacter::ApplyCameraSettings()
 		{
 			UE_LOG(LogSandsOfSorrow, Error, TEXT("%s: native camera defaults failed: %s"), *GetNameSafe(this), *DefaultError);
 		}
+		StandingCameraTargetOffset = CameraBoom->TargetOffset;
 		return;
 	}
+	StandingCameraTargetOffset = CameraBoom->TargetOffset;
 	UE_LOG(LogSandsOfSorrow, Verbose, TEXT("%s: applied camera settings %s (arm=%g, FOV=%g, target Z=%g)."),
 		*GetNameSafe(this), *GetPathNameSafe(Settings), Settings->TargetArmLength, Settings->FieldOfView, Settings->TargetOffset.Z);
 }
@@ -156,6 +158,12 @@ void ASandsOfSorrowPlayerCharacter::SetupPlayerInputComponent(UInputComponent* P
 		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Canceled, this, &ACharacter::StopJumping);
+	}
+	if (IsActionValid(CrouchAction, EInputActionValueType::Boolean, TEXT("CrouchAction")))
+	{
+		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ThisClass::BeginCrouchHold);
+		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ThisClass::EndCrouchHold);
+		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Canceled, this, &ThisClass::EndCrouchHold);
 	}
 	if (IsActionValid(InteractAction, EInputActionValueType::Boolean, TEXT("InteractAction")))
 	{
@@ -217,13 +225,49 @@ void ASandsOfSorrowPlayerCharacter::CheckJumpInput(float DeltaTime)
 		StopJumping();
 		return;
 	}
-	const UCharacterMovementComponent* Movement = GetCharacterMovement();
-	if (!Movement || !Movement->IsMovingOnGround() || !HasJumpClearance())
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement || !Movement->IsMovingOnGround() || !Movement->IsJumpAllowed()
+		|| JumpMaxCount <= 0 || JumpCurrentCount >= JumpMaxCount
+		|| (Movement->bConstrainToPlane && FMath::IsNearlyEqual(FMath::Abs(Movement->GetPlaneConstraintNormal().Z), 1.0))
+		|| !HasJumpClearance(true))
 	{
 		StopJumping();
 		return;
 	}
+	const bool bStartedCrouched = bIsCrouched;
+	const bool bPreviousRequest = Movement->bWantsToCrouch;
+	Movement->bWantsToCrouch = false;
+	if (bStartedCrouched)
+	{
+		Movement->UnCrouch(false);
+	}
+	// Штатная смена капсулы может вызвать внешние callbacks; перед импульсом проверяем мир повторно.
+	if (!IsValid(this) || !IsValid(Movement))
+	{
+		return;
+	}
+	if (bIsCrouched || !Movement->IsMovingOnGround() || !HasJumpClearance() || !CanJump())
+	{
+		Movement->bWantsToCrouch = bPreviousRequest;
+		if (bStartedCrouched && !bIsCrouched)
+		{
+			Movement->Crouch(false);
+		}
+		if (IsValid(this))
+		{
+			StopJumping();
+		}
+		return;
+	}
 	Super::CheckJumpInput(DeltaTime);
+	if (IsValid(this) && IsValid(Movement) && !Movement->IsFalling())
+	{
+		Movement->bWantsToCrouch = bPreviousRequest;
+		if (bStartedCrouched && !bIsCrouched)
+		{
+			Movement->Crouch(false);
+		}
+	}
 	// Любой результат потребляет одну попытку. Удержание Space не создаёт новый Started.
 	if (IsValid(this))
 	{
@@ -232,7 +276,7 @@ void ASandsOfSorrowPlayerCharacter::CheckJumpInput(float DeltaTime)
 }
 
 // Высота рассчитывается из действующей физики; геометрия использует полный масштаб и ответы капсулы.
-bool ASandsOfSorrowPlayerCharacter::HasJumpClearance() const
+bool ASandsOfSorrowPlayerCharacter::HasJumpClearance(bool bStandingTakeoff) const
 {
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const UCapsuleComponent* Capsule = GetCapsuleComponent();
@@ -257,13 +301,17 @@ bool ASandsOfSorrowPlayerCharacter::HasJumpClearance() const
 	// Ограничение защищает запрос физики от неподдерживаемой гравитации/чрезмерного объёма.
 	constexpr float MaximumClearanceHeightCm = 100000.0f;
 	const float Radius = Capsule->GetScaledCapsuleRadius();
-	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	const float CurrentHalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	const ASandsOfSorrowPlayerCharacter* Defaults = GetClass()->GetDefaultObject<ASandsOfSorrowPlayerCharacter>();
+	const float HalfHeight = bStandingTakeoff && bIsCrouched
+		? Defaults->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight() * Capsule->GetShapeScale()
+		: CurrentHalfHeight;
 	if (!FMath::IsFinite(BaseVelocityZ) || !FMath::IsFinite(TakeoffSpeed) || !FMath::IsFinite(Height) || Height < 0.0f || Height > MaximumClearanceHeightCm
 		|| !FMath::IsFinite(Radius) || !FMath::IsFinite(HalfHeight) || Radius <= 0.0f || HalfHeight < Radius)
 	{
 		return false;
 	}
-	const FVector Start = Capsule->GetComponentLocation();
+	const FVector Start = Capsule->GetComponentLocation() + FVector::UpVector * (HalfHeight - CurrentHalfHeight);
 	const FVector End = Start + FVector::UpVector * (Height + ClearanceMarginCm);
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(SandsJumpClearance), false, this);
 	Params.bFindInitialOverlaps = true;
@@ -284,4 +332,81 @@ bool ASandsOfSorrowPlayerCharacter::IsGameplayInteractionAllowed() const
 {
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	return Movement && !Movement->IsFalling();
+}
+
+// Начало удержания требует отдельного физического нажатия, независимо от разрешения E.
+void ASandsOfSorrowPlayerCharacter::BeginCrouchHold()
+{
+	ASandsOfSorrowGameplayPlayerController* Player = Cast<ASandsOfSorrowGameplayPlayerController>(Controller);
+	if (Player && Player->ConsumeCrouchPress())
+	{
+		SetCrouchHeld(true);
+	}
+}
+
+// Отпускание и отмена одинаково снимают запрос; потолок проверяет CharacterMovement.
+void ASandsOfSorrowPlayerCharacter::EndCrouchHold()
+{
+	SetCrouchHeld(false);
+}
+
+// Публичный запрос не подменяет фактический bIsCrouched.
+void ASandsOfSorrowPlayerCharacter::SetCrouchHeld(bool bHeld)
+{
+	bCrouchHeld = bHeld;
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && Movement->IsMovingOnGround())
+	{
+		Movement->bWantsToCrouch = bHeld;
+	}
+}
+
+// Компенсирует скачок центра капсулы; затем единственное смещение плавно возвращается к DA.
+void ASandsOfSorrowPlayerCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (IsValid(this) && CameraBoom)
+	{
+		CameraBoom->TargetOffset.Z += ScaledHalfHeightAdjust;
+	}
+}
+
+// Обратная компенсация сохраняет непрерывность камеры и при прерванной смене позы.
+void ASandsOfSorrowPlayerCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	if (IsValid(this) && CameraBoom)
+	{
+		CameraBoom->TargetOffset.Z -= ScaledHalfHeightAdjust;
+	}
+}
+
+// Плечо сохраняет штатные lag и collision; добавочная интерполяция нужна только при смене высоты.
+void ASandsOfSorrowPlayerCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	constexpr float CrouchCameraInterpolationSpeed = 12.0f;
+	if (CameraBoom && !CameraBoom->TargetOffset.Equals(StandingCameraTargetOffset, 0.001))
+	{
+		CameraBoom->TargetOffset = FMath::VInterpTo(CameraBoom->TargetOffset, StandingCameraTargetOffset,
+			DeltaSeconds, CrouchCameraInterpolationSpeed);
+		if (CameraBoom->TargetOffset.Equals(StandingCameraTargetOffset, 0.001))
+		{
+			CameraBoom->TargetOffset = StandingCameraTargetOffset;
+		}
+	}
+}
+
+// Старый Pawn не переносит удержание следующему владельцу.
+void ASandsOfSorrowPlayerCharacter::UnPossessed()
+{
+	SetCrouchHeld(false);
+	Super::UnPossessed();
+}
+
+// Завершение мира не сохраняет запросы управления.
+void ASandsOfSorrowPlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	SetCrouchHeld(false);
+	Super::EndPlay(EndPlayReason);
 }

@@ -88,3 +88,6 @@ Content/AAssets/
 
 # Modern Unreal packaging exclusion lists
 !Build/**/PakDenylist*.txt
+
+# Local source animation assets
+/Content/AAsets/

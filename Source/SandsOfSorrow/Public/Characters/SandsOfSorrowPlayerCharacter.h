@@ -22,6 +22,15 @@ public:
 	ASandsOfSorrowPlayerCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	const UInputAction* GetInteractAction() const { return InteractAction; }
+	const UInputAction* GetCrouchAction() const { return CrouchAction; }
+
+	// Удержание и физическая поза разделены: потолок может отложить безопасное вставание.
+	UFUNCTION(BlueprintPure, Category = "Movement|Crouch")
+	bool IsCrouchHeld() const { return bCrouchHeld; }
+
+	// Общая точка для ввода и проверок; не меняет капсулу в воздухе.
+	UFUNCTION(BlueprintCallable, Category = "Movement|Crouch")
+	void SetCrouchHeld(bool bHeld);
 
 	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
@@ -41,6 +50,12 @@ public:
 	bool IsGameplayInteractionAllowed() const;
 
 protected:
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void UnPossessed() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
 	// Проверяет место перед обработкой импульса и поглощает запрос без буфера или продления удержанием.
 	virtual void CheckJumpInput(float DeltaTime) override;
 
@@ -76,6 +91,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> CrouchAction;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Interaction")
 	TObjectPtr<USandsOfSorrowInteractionComponent> InteractionComponent;
 
@@ -94,7 +112,12 @@ private:
 	bool bCameraSettingsErrorReported = false;
 
 	// Проверяет локальный объём над капсулой, а не будущий горизонтальный маршрут.
-	bool HasJumpClearance() const;
+	bool HasJumpClearance(bool bStandingTakeoff = false) const;
+
+	void BeginCrouchHold();
+	void EndCrouchHold();
+	bool bCrouchHeld = false;
+	FVector StandingCameraTargetOffset = FVector::ZeroVector;
 
 	void Interact();
 	void Move(const FInputActionValue& Value);

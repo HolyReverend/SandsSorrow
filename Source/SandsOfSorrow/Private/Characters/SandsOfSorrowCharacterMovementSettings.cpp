@@ -1,5 +1,7 @@
 #include "Characters/SandsOfSorrowCharacterMovementSettings.h"
 
+#include "Characters/SandsOfSorrowCharacterMovementComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -19,6 +21,10 @@ bool USandsOfSorrowCharacterMovementSettings::IsValidConfiguration(FString& OutE
 		{TEXT("MaxAcceleration"), MaxAcceleration, 100000.0f},
 		{TEXT("BrakingDecelerationWalking"), BrakingDecelerationWalking, 100000.0f},
 		{TEXT("GroundFriction"), GroundFriction, 100.0f},
+		{TEXT("CrouchedHalfHeight"), CrouchedHalfHeight, 100000.0f},
+		{TEXT("CrouchMaxAcceleration"), CrouchMaxAcceleration, 100000.0f},
+		{TEXT("CrouchBrakingDeceleration"), CrouchBrakingDeceleration, 100000.0f},
+		{TEXT("CrouchGroundFriction"), CrouchGroundFriction, 100.0f},
 		{TEXT("BrakingFriction"), BrakingFriction, 100.0f},
 		{TEXT("BrakingFrictionFactor"), BrakingFrictionFactor, 100.0f},
 		{TEXT("RotationRateYaw"), RotationRateYaw, 36000.0f},
@@ -39,9 +45,9 @@ bool USandsOfSorrowCharacterMovementSettings::IsValidConfiguration(FString& OutE
 			return false;
 		}
 	}
-	if (MinAnalogWalkSpeed > MaxWalkSpeed)
+	if (MinAnalogWalkSpeed > MaxWalkSpeed * 0.5f)
 	{
-		OutError = TEXT("MinAnalogWalkSpeed must not exceed MaxWalkSpeed.");
+		OutError = TEXT("MinAnalogWalkSpeed must not exceed MaxWalkSpeed * 0.5.");
 		return false;
 	}
 	if (JumpMaxCount < 0 || JumpMaxCount > 16)
@@ -65,6 +71,30 @@ bool USandsOfSorrowCharacterMovementSettings::ApplyTo(ACharacter& Character, FSt
 		OutError = TEXT("Character has no CharacterMovementComponent.");
 		return false;
 	}
+	const UCapsuleComponent* Capsule = Character.GetCapsuleComponent();
+	const ACharacter* DefaultCharacter = Character.bIsCrouched ? Character.GetClass()->GetDefaultObject<ACharacter>() : nullptr;
+	const UCapsuleComponent* StandingCapsule = Character.bIsCrouched
+		? (DefaultCharacter ? DefaultCharacter->GetCapsuleComponent() : nullptr) : Capsule;
+	if (!Capsule || !StandingCapsule)
+	{
+		OutError = TEXT("Character has no capsule configuration for crouch.");
+		return false;
+	}
+	// В crouch текущая высота уже уменьшена; стоящую конфигурацию берём из CDO класса, включая BP.
+	const float CapsuleRadius = Capsule->GetUnscaledCapsuleRadius();
+	const float StandingHalfHeight = StandingCapsule->GetUnscaledCapsuleHalfHeight();
+	if (!FMath::IsFinite(CapsuleRadius) || !FMath::IsFinite(StandingHalfHeight)
+		|| CapsuleRadius <= 0.0f || StandingHalfHeight < CapsuleRadius
+		|| CrouchedHalfHeight < CapsuleRadius || CrouchedHalfHeight > StandingHalfHeight)
+	{
+		OutError = TEXT("CrouchedHalfHeight must fit between the actual capsule radius and standing half-height.");
+		return false;
+	}
+	Movement->GetNavAgentPropertiesRef().bCanCrouch = true;
+	// Сход с края остаётся возможен; малая воздушная капсула сохраняется до безопасной посадки.
+	Movement->bCanWalkOffLedgesWhenCrouching = true;
+	Movement->SetCrouchedHalfHeight(CrouchedHalfHeight);
+	Movement->MaxWalkSpeedCrouched = MaxWalkSpeed * 0.5f;
 	Movement->MaxWalkSpeed = MaxWalkSpeed;
 	Movement->MinAnalogWalkSpeed = MinAnalogWalkSpeed;
 	Movement->MaxAcceleration = MaxAcceleration;
@@ -86,5 +116,9 @@ bool USandsOfSorrowCharacterMovementSettings::ApplyTo(ACharacter& Character, FSt
 	Movement->AirControlBoostVelocityThreshold = AirControlBoostVelocityThreshold;
 	Movement->FallingLateralFriction = FallingLateralFriction;
 	Movement->BrakingDecelerationFalling = BrakingDecelerationFalling;
+	if (USandsOfSorrowCharacterMovementComponent* ProjectMovement = Cast<USandsOfSorrowCharacterMovementComponent>(Movement))
+	{
+		ProjectMovement->ConfigureCrouchGroundProfile(CrouchMaxAcceleration, CrouchBrakingDeceleration, CrouchGroundFriction);
+	}
 	return true;
 }

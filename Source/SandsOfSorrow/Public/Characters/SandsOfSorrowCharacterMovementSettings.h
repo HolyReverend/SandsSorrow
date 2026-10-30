@@ -16,7 +16,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ground", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Максимальная скорость обычного движения, см/с. 500 см/с соответствует 5 м/с. Также участвует в ограничении горизонтальной скорости в воздухе."))
 	float MaxWalkSpeed = 500.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ground", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Нижняя целевая скорость при очень слабом ненулевом аналоговом вводе, см/с. Не должна превышать MaxWalkSpeed; нулевой ввод по-прежнему останавливает персонажа."))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ground", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Нижняя целевая скорость при очень слабом ненулевом аналоговом вводе, см/с. Не должна превышать половину MaxWalkSpeed; нулевой ввод по-прежнему останавливает персонажа."))
 	float MinAnalogWalkSpeed = 20.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ground", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Максимальное ускорение от ввода, см/с². Меньшее значение удлиняет разгон и смену направления. В воздухе его влияние дополнительно ограничивается AirControl."))
@@ -27,6 +27,18 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ground", meta = (ClampMin = "0.0", ClampMax = "100.0", ToolTip = "Трение на земле: определяет быстроту изменения направления. Если отдельное тормозное трение отключено, используется и при остановке с множителем BrakingFrictionFactor."))
 	float GroundFriction = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Crouch", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Половина высоты капсулы в crouch, см без масштаба; не меньше фактического радиуса и не больше стоящей капсулы. Начальное значение требует проверки ощущения и геометрии."))
+	float CrouchedHalfHeight = 52.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Crouch", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Максимальное наземное ускорение в crouch, см/с². Не меняет воздушный профиль."))
+	float CrouchMaxAcceleration = 2400.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Crouch", meta = (ClampMin = "0.0", ClampMax = "100000.0", ToolTip = "Постоянное наземное торможение в crouch, см/с². Начальное значение для уменьшения инерции."))
+	float CrouchBrakingDeceleration = 2000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Crouch", meta = (ClampMin = "0.0", ClampMax = "100.0", ToolTip = "Наземное трение в crouch; применяется только к фактическому наземному состоянию и не переносится в падение."))
+	float CrouchGroundFriction = 12.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Braking", meta = (ToolTip = "Включает отдельное BrakingFriction при торможении. Если выключено, используется трение текущего режима: GroundFriction на земле и FallingLateralFriction в воздухе."))
 	bool bUseSeparateBrakingFriction = false;
